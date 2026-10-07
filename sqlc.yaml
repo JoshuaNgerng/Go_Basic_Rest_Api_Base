@@ -1,0 +1,14 @@
+version: "2"
+sql:
+  - engine: "postgresql"
+    queries: "db/queries"     # every .sql file in this directory
+    schema: "db/migrations"   # sqlc replays the "Up" parts in filename order
+    gen:
+      go:
+        package: "db"
+        out: "internal/db"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+        overrides:
+          - db_type: "timestamptz"
+            go_type: "time.Time"
