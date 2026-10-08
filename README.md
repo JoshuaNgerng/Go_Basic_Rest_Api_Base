@@ -30,8 +30,8 @@ make run                  # start the server
 
 Open http://localhost:8080/docs.
 
-> The repo ships with a hand-written bootstrap version of `internal/api/api.gen.go`.
-> `make generate` replaces it with the real generator output. If the build fails
+> The repo doesn't ship with a hand-written bootstrap version of `internal/api/api.gen.go`.
+> `make generate` will generate the file according to `api/openapi.yaml`.
 > afterwards, the handler method signatures probably differ from the generated
 > interface; the compiler error will say which one.
 
