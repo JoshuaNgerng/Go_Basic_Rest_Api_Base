@@ -1,0 +1,9 @@
+package: userapi
+output: api/user/userapi/api.gen.go
+generate:
+  models: true
+  std-http-server: true
+  strict-server: true
+# must match the $ref text in openapi.yaml exactly
+import-mapping:
+  ../common/openapi.yaml: authapi/api/common/commonapi

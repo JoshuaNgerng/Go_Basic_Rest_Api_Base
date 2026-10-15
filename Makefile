@@ -30,10 +30,18 @@ migrate-create:          ## usage: make migrate-create name=add_phone_to_users
 sqlc:
 	sqlc generate
 
-# Regenerates internal/api/api.gen.go from api/openapi.yaml.
-# Run after editing the spec.
+# Domains in dependency order: "common" must be generated first because the
+# others import it. To add a domain, create api/<name>/ and append it here.
+API_DOMAINS = common auth user
+
+# Regenerates api/<domain>/<domain>api/api.gen.go from api/<domain>/openapi.yaml.
+# Run after editing any spec.
 generate:
-	$(OAPI) -config api/oapi-codegen.yaml api/openapi.yaml
+	@for d in $(API_DOMAINS); do \
+	  echo "generating api/$$d"; \
+	  mkdir -p api/$$d/$${d}api; \
+	  $(OAPI) -config api/$$d/oapi-codegen.yaml api/$$d/openapi.yaml || exit 1; \
+	 done
 	go mod tidy
 
 run:

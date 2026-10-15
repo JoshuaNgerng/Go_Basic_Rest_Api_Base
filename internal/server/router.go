@@ -1,35 +1,42 @@
 package server
 
 import (
-	"log"
 	"net/http"
 
-	"authapi/internal/api"
+	"authapi/api/auth/authapi"
+	"authapi/api/user/userapi"
 )
 
-func newRouter(handlers api.StrictServerInterface, authn Authenticator) http.Handler {
+func newRouter(authH authapi.StrictServerInterface, userH userapi.StrictServerInterface, authn Authenticator) http.Handler {
 	mux := http.NewServeMux()
+	authMW := requireAuth(authn)
 
-	// 1. wrap our typed handlers so they speak plain net/http
-	strict := api.NewStrictHandlerWithOptions(handlers, nil, api.StrictHTTPServerOptions{
-		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
-			writeError(w, http.StatusBadRequest, "invalid request body")
+	// Each domain is wired the same way, onto the SAME mux:
+	//   1. wrap the typed handler so it speaks plain net/http
+	//   2. register that domain's routes (from its own openapi.yaml) on the mux
+	authapi.HandlerWithOptions(
+		authapi.NewStrictHandlerWithOptions(authH, nil, authapi.StrictHTTPServerOptions{
+			RequestErrorHandlerFunc:  badRequest,
+			ResponseErrorHandlerFunc: internalError,
+		}),
+		authapi.StdHTTPServerOptions{
+			BaseRouter:  mux,
+			Middlewares: []authapi.MiddlewareFunc{authMW},
 		},
-		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
-			// never leak internal error details to clients
-			log.Printf("handler error: %v", err)
-			writeError(w, http.StatusInternalServerError, "internal error")
+	)
+	userapi.HandlerWithOptions(
+		userapi.NewStrictHandlerWithOptions(userH, nil, userapi.StrictHTTPServerOptions{
+			RequestErrorHandlerFunc:  badRequest,
+			ResponseErrorHandlerFunc: internalError,
+		}),
+		userapi.StdHTTPServerOptions{
+			BaseRouter:  mux,
+			Middlewares: []userapi.MiddlewareFunc{authMW},
 		},
-	})
+	)
 
-	// 2. register every route declared in openapi.yaml on the mux
-	api.HandlerWithOptions(strict, api.StdHTTPServerOptions{
-		BaseRouter:  mux,
-		Middlewares: []api.MiddlewareFunc{requireAuth(authn)},
-	})
-
-	// 3. routes that are not part of the API contract
-	mux.HandleFunc("GET /openapi.yaml", serveSpec)
+	// routes that are not part of any API contract
+	mux.Handle("GET /openapi/", serveSpecs())
 	mux.HandleFunc("GET /docs", serveSwaggerUI)
 
 	return recoverer(logRequests(limitBody(mux)))

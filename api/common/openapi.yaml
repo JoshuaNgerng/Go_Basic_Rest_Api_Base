@@ -1,0 +1,20 @@
+openapi: 3.0.3
+info:
+  title: Common schemas
+  version: 1.0.0
+  description: Schemas shared by every domain spec. Contains no paths.
+paths: {}
+components:
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+    Message:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string

@@ -14,6 +14,17 @@ SELECT email, name, created_at, updated_at
 FROM users
 WHERE id = $1;
 
+-- name: GetUserPasswordHashById :one
+SELECT password_hash
+FROM users
+WHERE id = $1;
+
+-- name: GetPasswordChangedAt :one
+-- Used to reject tokens issued before the last password change.
+SELECT password_changed_at
+FROM users
+WHERE id = $1;
+
 -- name: UpdateUserInfoById :one
 -- Update a single user's information.
 UPDATE users
@@ -22,6 +33,14 @@ SET
     name  = COALESCE(sqlc.narg('name'), name)
 WHERE id = sqlc.arg('id')
 RETURNING id, email, name, created_at, updated_at;
+
+-- name: UpdateUserPasswordById :exec
+-- Store a new password hash and invalidate older tokens.
+UPDATE users
+SET
+    password_hash       = $2,
+    password_changed_at = now()
+WHERE id = $1;
 
 -- name: DeleteUserById :one
 DELETE FROM users

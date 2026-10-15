@@ -11,33 +11,18 @@ import (
 	"authapi/internal/user"
 )
 
-// Both feature handlers are called "Handler", and Go does not allow two
-// embedded fields with the same name, so we give them local aliases.
-type (
-	authHandlers = auth.Handler
-	userHandlers = user.Handler
-)
-
-// apiHandler implements api.StrictServerInterface by embedding the feature
-// handlers: each one contributes the operations it implements.
-type apiHandler struct {
-	*authHandlers
-	*userHandlers
-}
-
 type Server struct {
 	httpServer *http.Server
 }
 
+// New builds the handlers from the services and mounts them on one router.
+// Each domain has its own generated interface, so there is nothing to combine:
+// auth.Handler serves the auth routes and user.Handler serves the user routes.
 func New(port string, authSvc *auth.Service, userSvc *user.Service) *Server {
-	handlers := apiHandler{
-		authHandlers: auth.NewHandler(authSvc),
-		userHandlers: user.NewHandler(userSvc),
-	}
 	return &Server{
 		httpServer: &http.Server{
 			Addr:              ":" + port,
-			Handler:           newRouter(handlers, authSvc),
+			Handler:           newRouter(auth.NewHandler(authSvc), user.NewHandler(userSvc), authSvc),
 			ReadHeaderTimeout: 5 * time.Second,
 		},
 	}

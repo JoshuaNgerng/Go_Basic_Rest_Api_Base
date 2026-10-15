@@ -8,7 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"authapi/internal/api"
+	"authapi/api/auth/authapi"
+	"authapi/api/user/userapi"
 	"authapi/internal/auth"
 )
 
@@ -17,14 +18,22 @@ type Authenticator interface {
 	Authenticate(ctx context.Context, token string) (auth.Principal, error)
 }
 
-// requireAuth enforces the `security: bearerAuth` declarations in the spec.
-// The generated wrapper puts api.BearerAuthScopes into the request context for
-// every operation that declares it, so protected routes are defined in the
-// YAML, not repeated in Go.
-func requireAuth(authn Authenticator) api.MiddlewareFunc {
+// isProtected reports whether the matched operation declares `security` in its
+// spec. Each generated wrapper puts its BearerAuthScopes key into the request
+// context for such operations. Every domain has its own copy of the constant,
+// so we accept any of them.
+func isProtected(ctx context.Context) bool {
+	return ctx.Value(authapi.BearerAuthScopes) != nil ||
+		ctx.Value(userapi.BearerAuthScopes) != nil
+}
+
+// requireAuth enforces the `security: bearerAuth` declarations in the specs, so
+// protected routes are defined in the YAML and not repeated in Go. It returns a
+// plain func so it can be used as authapi.MiddlewareFunc and userapi.MiddlewareFunc.
+func requireAuth(authn Authenticator) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Context().Value(api.BearerAuthScopes) == nil {
+			if !isProtected(r.Context()) {
 				next.ServeHTTP(w, r) // public operation
 				return
 			}

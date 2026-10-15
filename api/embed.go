@@ -1,7 +1,8 @@
-// Package apispec exposes the OpenAPI document so the server can serve it.
+// Package apispec embeds the OpenAPI documents so the server can serve them
+// (Swagger UI reads them from /openapi/...).
 package apispec
 
-import _ "embed"
+import "embed"
 
-//go:embed openapi.yaml
-var Spec []byte
+//go:embed common/openapi.yaml auth/openapi.yaml user/openapi.yaml
+var FS embed.FS

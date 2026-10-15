@@ -1,0 +1,7 @@
+package: commonapi
+output: api/common/commonapi/api.gen.go
+generate:
+  models: true
+output-options:
+  # this spec has no paths, so without this every schema would be pruned as "unused"
+  skip-prune: true

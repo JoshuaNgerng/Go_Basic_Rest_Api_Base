@@ -33,6 +33,6 @@ go.work.sum
 # .vscode/
 
 
-# autogen code
-internal/api
+# autogen code (recreate with `make sqlc` and `make generate`)
 internal/db
+api/*/*api/

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/mail"
 	"strconv"
 	"strings"
 	"time"
@@ -13,20 +12,17 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"authapi/internal/db"
+	"authapi/internal/validate"
 )
 
 // Domain errors. The HTTP layer decides which status code each one maps to.
 var (
 	ErrEmailTaken         = errors.New("email already registered")
 	ErrInvalidCredentials = errors.New("invalid email or password")
+	ErrIncorrectPassword  = errors.New("current password is incorrect")
 	ErrInvalidToken       = errors.New("invalid or expired token")
 	ErrTokenRevoked       = errors.New("token has been revoked")
 )
-
-// ValidationError means the caller sent unacceptable input.
-type ValidationError struct{ Message string }
-
-func (e *ValidationError) Error() string { return e.Message }
 
 // Token is what a successful login produces.
 type Token struct {
@@ -50,17 +46,16 @@ func NewService(q *db.Queries, jwt *JWTManager, iterations int) (*Service, error
 }
 
 func (s *Service) Register(ctx context.Context, email, name, password string) error {
-	email = strings.ToLower(strings.TrimSpace(email))
-	name = strings.TrimSpace(name)
-
-	if addr, err := mail.ParseAddress(email); err != nil || addr.Address != email {
-		return &ValidationError{"invalid email"}
+	email, err := validate.Email(email)
+	if err != nil {
+		return err
 	}
-	if name == "" {
-		return &ValidationError{"name is required"}
+	name, err = validate.Name(name)
+	if err != nil {
+		return err
 	}
-	if len(password) < 8 || len(password) > 128 {
-		return &ValidationError{"password must be 8-128 characters"}
+	if err := validate.Password(password); err != nil {
+		return err
 	}
 
 	hash, err := HashPassword(password, s.iterations)
@@ -112,15 +107,48 @@ func (s *Service) Logout(ctx context.Context, p Principal) error {
 	return nil
 }
 
-// Authenticate verifies a raw JWT and checks it has not been revoked.
-// It is used by the HTTP middleware.
+// ChangePassword replaces the caller's password. It requires the current
+// password, and afterwards every token issued before now is rejected by
+// Authenticate (see password_changed_at), so the user must log in again.
+func (s *Service) ChangePassword(ctx context.Context, userID int64, current, next string) error {
+	if err := validate.Password(next); err != nil {
+		return err
+	}
+
+	hash, err := s.q.GetUserPasswordHashById(ctx, userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrInvalidToken // the user no longer exists
+	}
+	if err != nil {
+		return fmt.Errorf("get password hash: %w", err)
+	}
+
+	ok, err := VerifyPassword(current, hash)
+	if err != nil || !ok {
+		return ErrIncorrectPassword
+	}
+
+	newHash, err := HashPassword(next, s.iterations)
+	if err != nil {
+		return fmt.Errorf("hash password: %w", err)
+	}
+	err = s.q.UpdateUserPasswordById(ctx, db.UpdateUserPasswordByIdParams{ID: userID, PasswordHash: newHash})
+	if err != nil {
+		return fmt.Errorf("update password: %w", err)
+	}
+	return nil
+}
+
+// Authenticate verifies a raw JWT, checks it has not been revoked, and checks
+// it was issued after the user's last password change. It is used by the HTTP
+// middleware.
 func (s *Service) Authenticate(ctx context.Context, token string) (Principal, error) {
 	claims, err := s.jwt.Parse(token)
 	if err != nil {
 		return Principal{}, ErrInvalidToken
 	}
 	userID, err := strconv.ParseInt(claims.Subject, 10, 64)
-	if err != nil {
+	if err != nil || claims.IssuedAt == nil {
 		return Principal{}, ErrInvalidToken
 	}
 
@@ -129,6 +157,18 @@ func (s *Service) Authenticate(ctx context.Context, token string) (Principal, er
 		return Principal{}, fmt.Errorf("check revoked: %w", err)
 	}
 	if revoked {
+		return Principal{}, ErrTokenRevoked
+	}
+
+	changedAt, err := s.q.GetPasswordChangedAt(ctx, userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Principal{}, ErrInvalidToken // the user was deleted
+	}
+	if err != nil {
+		return Principal{}, fmt.Errorf("get password_changed_at: %w", err)
+	}
+	// JWT timestamps have one-second precision, so compare at that precision.
+	if claims.IssuedAt.Time.Before(changedAt.Truncate(time.Second)) {
 		return Principal{}, ErrTokenRevoked
 	}
 
